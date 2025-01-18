@@ -1,97 +1,53 @@
-# Server-side (Flask app - app.py)
-import tensorflow as tf
-from flask import Flask, request, jsonify
+# Client-side (example client.py)
+import requests
+from PIL import Image
 import numpy as np
 import json
 import time
 
-# Load the trained model
-print("Loading the model...")
-model = tf.keras.models.load_model("emotion_model.h5")
-print("Model loaded successfully.")
+# Load and preprocess the image
+image_path = "path/to/your/image.jpg"  # Replace with the actual path
+print(f"Loading image from: {image_path}")
+try:
+    img = Image.open(image_path).convert('L')  # Convert to grayscale
+    print("Image loaded and converted to grayscale.")
+except FileNotFoundError:
+    print(f"Error: Image not found at {image_path}")
+    exit()
 
-# Emotion mapping (from index to emotion name)
-emotion_labels = {
-    0: "Angry",
-    1: "Disgust",
-    2: "Fear",
-    3: "Happy",
-    4: "Sad",
-    5: "Surprise",
-    6: "Neutral"
-}
+print("Resizing image to 48x48...")
+img = img.resize((48, 48))
+print("Image resized.")
 
-# Wellness suggestions for emotions
-wellness_suggestions = {
-    "happy": "Balanced state! Keep following your current routine.",
-    "angry": "Pitta imbalance detected. Suggestions: cooling foods like cucumber, meditation, and coconut water.",
-    "sad": "Vata imbalance detected. Suggestions: warm milk, sesame oil massage, and grounding exercises.",
-    "neutral": "Maintain mindfulness to stay balanced.",
-    "fear": "Practice calming techniques such as breathing exercises or guided meditation.",
-    "disgust": "Engage in activities that bring joy and relaxation, such as art or nature walks.",
-    "surprise": "Take time to process unexpected events mindfully and maintain emotional balance."
-}
+print("Converting image to NumPy array and normalizing...")
+img_array = np.array(img).astype("float32") / 255.0
+print("Image converted and normalized.")
+print(f"Shape of preprocessed image array: {img_array.shape}")
+print(f"Size of flattened array: {img_array.flatten().size}") # Added print statement
 
-# Create Flask app
-app = Flask(__name__)
+# Send the preprocessed image data to the Flask API
+url = "YOUR_RENDER_APP_URL/predict"  # Replace with your Render app URL
+print(f"Sending request to: {url}")
+data = {'image_data': img_array.tolist()}  # Convert to list for JSON serialization
+headers = {'Content-type': 'application/json'}
+print(f"Sending data: {data}")
 
-# Route for emotion prediction (accepting preprocessed image data)
-@app.route('/predict', methods=['POST'])
-def predict_emotion():
-    print("Received a request at /predict")
-    try:
-        # Get the preprocessed image data from the request
-        print("Attempting to get JSON data from request...")
-        data = request.get_json()
-        print(f"Received JSON data: {data}")
-        if not data or 'image_data' not in data:
-            print("Error: No image_data found in request")
-            return jsonify({"error": "No image_data found in request"}), 400
+try:
+    print("Sending the POST request...")
+    start_time = time.time()
+    response = requests.post(url, data=json.dumps(data), headers=headers)
+    end_time = time.time()
+    print(f"Request completed in: {end_time - start_time:.4f} seconds")
 
-        # Convert the list back to a NumPy array
-        print("Converting image_data to NumPy array...")
-        image_data = np.array(data['image_data'])
-        print(f"Image data shape after conversion: {image_data.shape}")
+    print(f"Response status code: {response.status_code}")
+    print(f"Response content: {response.text}")
 
-        # Ensure the image data has the correct shape
-        if image_data.shape != (48, 48):
-            print(f"Error: Incorrect image_data shape. Expected (48, 48), got {image_data.shape}")
-            return jsonify({"error": f"Incorrect image_data shape. Expected (48, 48), got {image_data.shape}"}), 400
+    if response.status_code == 200:
+        print("Prediction successful!")
+        print(response.json())
+    else:
+        print("Prediction failed.")
+        print(f"Error details: {response.text}")
 
-        # Expand dimensions to match the model's input shape (batch_size, height, width, channels)
-        print("Expanding dimensions of image data...")
-        img = np.expand_dims(image_data, axis=-1)  # Add channel dimension
-        print(f"Image data shape after adding channel dimension: {img.shape}")
-        img = np.expand_dims(img, axis=0)   # Add batch dimension
-        print(f"Image data shape after adding batch dimension: {img.shape}")
-
-        # Make prediction using the model
-        print("Making prediction...")
-        start_time = time.time()
-        prediction = model.predict(img)
-        end_time = time.time()
-        print(f"Prediction time: {end_time - start_time:.4f} seconds")
-        predicted_class = np.argmax(prediction)  # Get index of the highest probability
-        predicted_emotion = emotion_labels.get(predicted_class, "Unknown")  # Map index to emotion
-        print(f"Predicted class: {predicted_class}, Predicted emotion: {predicted_emotion}")
-
-        # Get wellness suggestion
-        wellness_advice = wellness_suggestions.get(predicted_emotion.lower(), "Stay mindful and balanced!")
-
-        # Return prediction and advice
-        print("Returning prediction and advice...")
-        return jsonify({
-            "emotion": predicted_emotion,
-            "suggestion": wellness_advice
-        })
-
-    except ValueError as ve:
-        print(f"ValueError occurred: {ve}")
-        return jsonify({"error": str(ve)}), 400
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-
-if __name__ == '__main__':
-    print("Starting the Flask app...")
-    app.run(debug=True)
+except requests.exceptions.RequestException as e:
+    print(f"An error occurred during the request: {e}")
